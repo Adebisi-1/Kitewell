@@ -261,8 +261,15 @@ export default function App() {
       showToast("Connect Freighter first.", "error");
       return null;
     }
-    if (!sendForm.destination || !sendForm.amount) {
-      showToast("Destination and amount are required.", "error");
+    if (!sendForm.destination) {
+      showToast("Destination is required.", "error");
+      return null;
+    }
+    let amount;
+    try {
+      amount = validatePaymentAmount(sendForm.amount);
+    } catch (err) {
+      showToast(err.message, "error");
       return null;
     }
     if (
@@ -278,7 +285,7 @@ export default function App() {
       showToast("Choose an asset you hold a trustline for.", "error");
       return null;
     }
-    if (parseFloat(sendForm.amount) > parseFloat(selected.balance)) {
+    if (parseFloat(amount) > parseFloat(selected.balance)) {
       showToast(
         `Insufficient ${selected.code} balance. Available: ${selected.balance}.`,
         "error"
@@ -288,7 +295,7 @@ export default function App() {
 
     return {
       destination: sendForm.destination,
-      amount: sendForm.amount,
+      amount,
       asset: selected.isNative
         ? { isNative: true }
         : { isNative: false, code: selected.code, issuer: selected.issuer },
