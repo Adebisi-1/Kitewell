@@ -9,6 +9,7 @@ import {
   readKitewellState,
   registerBuilderWithFreighter,
 } from "./freighter";
+import { shortenAddress } from "./addressFormat";
 import {
   fundWithFriendbot,
   getAccountBalances,
@@ -17,6 +18,7 @@ import {
   explorerAccountUrl,
   explorerTxUrl,
 } from "./stellar";
+import { validatePaymentAmount } from "./validatePaymentAmount";
 import { fetchHealth, fetchNetworkInfo } from "./api";
 import {
   NETWORKS,
@@ -24,6 +26,7 @@ import {
   isFriendbotAvailable,
   setActiveNetwork,
 } from "./network";
+import { validateAssetCode } from "./validateAssetCode";
 import "./App.css";
 
 const TABS = ["Wallet", "Fund", "Assets", "Send", "Path", "History", "Lab"];
@@ -64,6 +67,7 @@ export default function App() {
   const [freighterInstalled, setFreighterInstalled] = useState(null);
   const [balances, setBalances] = useState([]);
   const [transactions, setTransactions] = useState([]);
+  const [nextCursor, setNextCursor] = useState(null);
   const [loading, setLoading] = useState("");
   const [toast, setToast] = useState(null);
   const [sendForm, setSendForm] = useState({
@@ -201,15 +205,20 @@ export default function App() {
   const handleTrust = async (e) => {
     e.preventDefault();
     if (!publicKey) return showToast("Connect Freighter first.", "error");
-    if (!trustForm.code || !trustForm.issuer) {
-      return showToast("Asset code and issuer are required.", "error");
+    if (!trustForm.issuer) {
+      return showToast("Issuer is required.", "error");
+    }
+    let code;
+    try {
+      code = validateAssetCode(trustForm.code);
+    } catch (err) {
+      return showToast(err.message, "error");
     }
     setLoading("trust");
-    const code = trustForm.code.toUpperCase();
     try {
       await changeTrustWithFreighter(
         publicKey,
-        trustForm.code,
+        code,
         trustForm.issuer,
         trustForm.limit || "1000000"
       );
@@ -428,11 +437,27 @@ export default function App() {
     if (!publicKey) return showToast("Connect Freighter first.", "error");
     setLoading("history");
     try {
-      const txs = await getTransactions(publicKey);
-      setTransactions(txs);
-      if (txs.length === 0) showToast("No payments yet.", "info");
+      const page = await getTransactions(publicKey);
+      setTransactions(page.records);
+      setNextCursor(page.nextCursor);
+      if (page.records.length === 0) showToast("No payments yet.", "info");
     } catch {
       showToast("Could not load payment history.", "error");
+    } finally {
+      setLoading("");
+    }
+  };
+
+  const handleLoadMore = async () => {
+    if (!publicKey || !nextCursor) return;
+    setLoading("history-more");
+    try {
+      // Same page size as the first page; `undefined` keeps the default limit.
+      const page = await getTransactions(publicKey, undefined, nextCursor);
+      setTransactions((previous) => [...previous, ...page.records]);
+      setNextCursor(page.nextCursor);
+    } catch {
+      showToast("Could not load older payments.", "error");
     } finally {
       setLoading("");
     }
@@ -621,7 +646,7 @@ export default function App() {
               </div>
               <div className="hero-card__key">
                 <span className="eyebrow">Public key</span>
-                <code>{shorten(publicKey)}</code>
+                <code>{shortenAddress(publicKey)}</code>
                 <button
                   className="icon-btn"
                   type="button"
@@ -629,7 +654,7 @@ export default function App() {
                     navigator.clipboard.writeText(publicKey);
                     showToast("Address copied.");
                   }}
-                  title="Copy"
+                  title="Copy public key"
                   aria-label="Copy public key"
                 >
                   ⎘
@@ -840,7 +865,7 @@ export default function App() {
                         <strong>{b.code}</strong>
                         {!b.isNative && (
                           <span className="muted balance-row__issuer">
-                            {shorten(b.issuer)}
+                            {shortenAddress(b.issuer)}
                           </span>
                         )}
                       </div>
@@ -1446,8 +1471,8 @@ export default function App() {
                         </div>
                         <div className="tx-item__addr muted">
                           {isOutgoing
-                            ? `To ${shorten(tx.to)}`
-                            : `From ${shorten(tx.from)}`}
+                            ? `To ${shortenAddress(tx.to)}`
+                            : `From ${shortenAddress(tx.from)}`}
                         </div>
                         <a
                           href={explorerTxUrl(tx.transaction_hash)}
@@ -1472,6 +1497,24 @@ export default function App() {
               ) : (
                 !loading && <p className="muted">No payments yet.</p>
               )}
+              {nextCursor && (
+                <div className="section__row">
+                  <button
+                    className="btn btn--secondary"
+                    type="button"
+                    onClick={handleLoadMore}
+                    disabled={loading === "history-more"}
+                  >
+                    {loading === "history-more" ? (
+                      <>
+                        <Spinner /> Loading…
+                      </>
+                    ) : (
+                      "Load more"
+                    )}
+                  </button>
+                </div>
+              )}
             </div>
           )}
         </section>
@@ -1489,11 +1532,6 @@ export default function App() {
       </footer>
     </div>
   );
-}
-
-function shorten(key) {
-  if (!key || key.length < 12) return key;
-  return `${key.slice(0, 6)}…${key.slice(-6)}`;
 }
 
 function formatCreatedAt(value) {
