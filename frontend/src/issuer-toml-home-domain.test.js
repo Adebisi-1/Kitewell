@@ -7,7 +7,6 @@ import {
 } from "./issuerToml";
 
 const ISSUER = StellarSdk.Keypair.random().publicKey();
-const OTHER = StellarSdk.Keypair.random().publicKey();
 
 describe("resolveIssuerHomeDomain", () => {
   it("returns the home_domain the account published", async () => {
