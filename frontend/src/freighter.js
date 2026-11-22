@@ -7,7 +7,12 @@ import {
 } from "@stellar/freighter-api";
 import * as StellarSdk from "@stellar/stellar-sdk";
 import { findNetworkByPassphrase, getActiveNetwork } from "./network";
-import { buildAsset, parsePathAssets } from "./stellar";
+import {
+  buildAsset,
+  parsePathAssets,
+  buildSetOptionsBody,
+  MAX_ASSET_CODE_LENGTH,
+} from "./stellar";
 import { parseHorizonError } from "./horizonErrorParse";
 import {
   HORIZON_FAILURE_CODE,
@@ -657,8 +662,13 @@ export async function readContractInstanceTtl(contractId) {
  * never invokes register / pause / unregister — it only lengthens the
  * instance's ledger lifetime.
  *
- * `options.currentDeadline` lets callers reuse the TTL they already read; when
- * omitted the helper reads it itself so the local guard always holds.
+ * `extendFootprintTtl` takes a ledger *count* from the current ledger, not an
+ * absolute sequence number, so the absolute target is converted with the
+ * latest ledger before building the op.
+ *
+ * `options.currentDeadline` / `options.latestLedger` let callers reuse the TTL
+ * they already read; anything missing is read from Soroban RPC so the local
+ * guards always hold.
  */
 export async function extendContractTtlWithFreighter(
   publicKey,
@@ -678,13 +688,27 @@ export async function extendContractTtlWithFreighter(
     throw new Error("Extend to a valid positive ledger number.");
   }
 
+  let ttlInfo = null;
   const currentDeadline =
     options.currentDeadline ??
-    (await readContractInstanceTtl(contractId)).liveUntilLedgerSeq ??
+    (ttlInfo = await readContractInstanceTtl(contractId)).liveUntilLedgerSeq ??
     0;
   if (target <= currentDeadline) {
     throw new Error(
       `New deadline must be later than the current one (${currentDeadline}).`
+    );
+  }
+
+  let latestLedger = options.latestLedger;
+  if (latestLedger === undefined || latestLedger === null) {
+    if (!ttlInfo) ttlInfo = await readContractInstanceTtl(contractId);
+    latestLedger = ttlInfo.latestLedger;
+  }
+
+  const extendBy = target - latestLedger;
+  if (!Number.isSafeInteger(extendBy) || extendBy <= 0) {
+    throw new Error(
+      `New deadline must be later than the latest ledger (${latestLedger}).`
     );
   }
 
@@ -700,7 +724,9 @@ export async function extendContractTtlWithFreighter(
     networkPassphrase: currentPassphrase(),
     sorobanData,
   })
-    .addOperation(StellarSdk.Operation.extendFootprintTtl({ extendTo: target }))
+    .addOperation(
+      StellarSdk.Operation.extendFootprintTtl({ extendTo: extendBy })
+    )
     .setTimeout(180)
     .build();
 

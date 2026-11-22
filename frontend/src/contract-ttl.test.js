@@ -23,6 +23,7 @@ vi.mock("@stellar/freighter-api", () => ({
   isConnected: vi.fn(),
   setAllowed: vi.fn(),
   getAddress: vi.fn(),
+  getNetwork: vi.fn(),
   signTransaction: signTransactionMock,
 }));
 
@@ -98,7 +99,7 @@ describe("extendContractTtlWithFreighter", () => {
       USER,
       CONTRACT_ID,
       9000,
-      { currentDeadline: 6000 }
+      { currentDeadline: 6000, latestLedger: 4000 }
     );
 
     expect(result).toEqual({
@@ -119,7 +120,9 @@ describe("extendContractTtlWithFreighter", () => {
     // Exactly one op: extend TTL. Never register / pause / unregister.
     expect(tx.operations).toHaveLength(1);
     expect(tx.operations[0].type).toBe("extendFootprintTtl");
-    expect(tx.operations[0].extendTo).toBe(9000);
+    // extendTo is a ledger count from the latest ledger, not the absolute
+    // deadline: 9000 - 4000 = 5000 ledgers remaining.
+    expect(tx.operations[0].extendTo).toBe(5000);
 
     // The footprint targets the configured contract instance.
     const footprint = tx

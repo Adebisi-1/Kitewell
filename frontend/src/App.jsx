@@ -8,6 +8,11 @@ import {
   changeTrustWithFreighter,
   readKitewellState,
   registerBuilderWithFreighter,
+  setAccountOptionsWithFreighter,
+  allowTrustWithFreighter,
+  readContractInstanceTtl,
+  extendContractTtlWithFreighter,
+  readKitewellEvents,
   submitFailureResult,
 } from "./freighter";
 import {
@@ -25,6 +30,7 @@ import {
   explorerTxUrl,
   getAccountAuthConfig,
   getIssuedAssetTrustlines,
+  IMMUTABLE_CONFIRMATION,
 } from "./stellar";
 import { poolShareRows } from "./poolShare";
 import { validatePaymentAmount } from "./validatePaymentAmount";
@@ -43,12 +49,14 @@ const TABS = [
   "Wallet",
   "Fund",
   "Assets",
+  "Issuer",
   "Send",
   "Path",
   "History",
   "Inspect",
   "Lab",
 ];
+const EVENT_POLL_MS = 6000;
 const PATH_MODE_FIELDS = {
   strictSend: {
     amountLabel: "Amount to send",
@@ -658,6 +666,179 @@ export default function App() {
       setLoading("");
     }
   };
+
+  const refreshIssuerPanel = async () => {
+    if (!publicKey) return;
+    setLoading("issuer");
+    try {
+      const config = await getAccountAuthConfig(publicKey);
+      setIssuerConfig(config);
+      setIssuerConfigError(null);
+      setIssuerForm({
+        homeDomain: config.homeDomain || "",
+        authRequired: config.authRequired,
+        authRevocable: config.authRevocable,
+        authImmutable: config.authImmutable,
+        confirmation: "",
+      });
+    } catch (err) {
+      setIssuerConfig(null);
+      setIssuerConfigError(err.message || "Could not read account flags.");
+    }
+
+    try {
+      setIssuedTrustlines(await getIssuedAssetTrustlines(publicKey));
+      setIssuedTrustlinesError(null);
+    } catch (err) {
+      setIssuedTrustlines([]);
+      setIssuedTrustlinesError(err.message || "Could not read issued trustlines.");
+    }
+    setLoading("");
+  };
+
+  const handleSetIssuerOptions = async (e) => {
+    e.preventDefault();
+    if (!publicKey) return showToast("Connect Freighter first.", "error");
+    setLoading("issuer-update");
+    try {
+      await setAccountOptionsWithFreighter(publicKey, {
+        current: issuerConfig || {},
+        homeDomain: issuerForm.homeDomain,
+        authRequired: issuerForm.authRequired,
+        authRevocable: issuerForm.authRevocable,
+        authImmutable: issuerForm.authImmutable,
+        immutableConfirmation: issuerForm.confirmation,
+      });
+      showToast("Account flags updated.");
+      // A successful update refreshes both the flags and the account balances.
+      await refreshIssuerPanel();
+      await refreshBalances();
+    } catch (err) {
+      showToast(err.message || "Could not update account flags.", "error");
+    } finally {
+      setLoading("");
+    }
+  };
+
+  const handleAllowTrust = async (entry, authorize) => {
+    if (!publicKey) return showToast("Connect Freighter first.", "error");
+    setLoading(`allow-${entry.key}`);
+    try {
+      await allowTrustWithFreighter(publicKey, {
+        holder: entry.holder,
+        assetCode: entry.assetCode,
+        assetIssuer: entry.assetIssuer,
+        authorize,
+      });
+      showToast(
+        `${authorize ? "Authorized" : "Revoked"} ${shortenAddress(entry.holder)} for ${entry.assetCode}.`
+      );
+      await refreshIssuerPanel();
+    } catch (err) {
+      showToast(err.message || "Could not update the trustline.", "error");
+    } finally {
+      setLoading("");
+    }
+  };
+
+  const refreshTtlInfo = async (explicitContractId) => {
+    const contractId = explicitContractId ?? configuredContractId;
+    if (!contractId) {
+      setTtlInfo(null);
+      setTtlError(null);
+      return;
+    }
+    setLoading("ttl");
+    setTtlError(null);
+    try {
+      const info = await readContractInstanceTtl(contractId);
+      setTtlInfo(info);
+      setTtlForm({
+        extendTo: String((info.liveUntilLedgerSeq || info.latestLedger || 0) + 5000),
+      });
+    } catch (err) {
+      setTtlInfo(null);
+      setTtlError(err.message || "Could not read the instance TTL.");
+    } finally {
+      setLoading("");
+    }
+  };
+
+  const handleExtendTtl = async (e) => {
+    e.preventDefault();
+    if (!publicKey) return showToast("Connect Freighter first.", "error");
+    if (!configuredContractId) {
+      return showToast("No contract id configured — deploy first.", "error");
+    }
+    setLoading("ttl-extend");
+    try {
+      const result = await extendContractTtlWithFreighter(
+        publicKey,
+        configuredContractId,
+        ttlForm.extendTo,
+        {
+          currentDeadline: ttlInfo?.liveUntilLedgerSeq ?? undefined,
+          latestLedger: ttlInfo?.latestLedger ?? undefined,
+        }
+      );
+      setTtlResult({
+        hash: result.hash,
+        liveUntilLedgerSeq: result.liveUntilLedgerSeq,
+      });
+      showToast(
+        result.confirmed
+          ? `TTL extended to ledger ${result.liveUntilLedgerSeq}.`
+          : `TTL extension submitted · ${result.hash.slice(0, 12)}…`
+      );
+      await refreshTtlInfo(configuredContractId);
+    } catch (err) {
+      showToast(err.message || "Could not extend the instance TTL.", "error");
+    } finally {
+      setLoading("");
+    }
+  };
+
+  const pollLabEvents = useCallback(async (contractId) => {
+    if (!contractId) return;
+    try {
+      const result = await readKitewellEvents(contractId, {
+        cursor: eventCursorRef.current || undefined,
+        startLedger: eventStartLedgerRef.current || undefined,
+      });
+      if (eventStartLedgerRef.current === null && result.latestLedger) {
+        eventStartLedgerRef.current = result.latestLedger;
+      }
+      if (result.cursor) eventCursorRef.current = result.cursor;
+      setLabEvents((previous) => {
+        const byId = new Map(previous.map((event) => [event.id, event]));
+        result.events.forEach((event) => byId.set(event.id, event));
+        return [...byId.values()];
+      });
+      setLabEventsError(null);
+    } catch (err) {
+      setLabEventsError(err.message || "Could not read contract events.");
+    }
+  }, []);
+
+  // Start the tail at the ledger open when the Lab tab is first shown, and
+  // poll for new register / pause events while it stays open.
+  useEffect(() => {
+    if (activeTab !== "Lab" || !configuredContractId) {
+      if (activeTab !== "Lab") {
+        eventCursorRef.current = null;
+        eventStartLedgerRef.current = null;
+      }
+      return undefined;
+    }
+    eventCursorRef.current = null;
+    eventStartLedgerRef.current = null;
+    pollLabEvents(configuredContractId);
+    const timer = setInterval(
+      () => pollLabEvents(configuredContractId),
+      EVENT_POLL_MS
+    );
+    return () => clearInterval(timer);
+  }, [activeTab, configuredContractId, pollLabEvents]);
 
   const handleInspect = (event) => {
     event.preventDefault();

@@ -133,27 +133,71 @@ export function buildSetOptionsBody({
 }
 
 /**
- * List trustlines for assets issued by `publicKey` using Horizon's
- * accounts-for-asset endpoint (`/assets?asset_issuer=…`). An issuer that has no
- * holders simply gets an empty list.
+ * List the accounts that hold assets issued by `publicKey`.
+ *
+ * Holder rows must come from Horizon's accounts-for-asset endpoint
+ * (`/accounts?asset=CODE:ISSUER`); the `/assets?asset_issuer=…` response only
+ * carries asset stats and has no holder account to authorize or revoke. When
+ * `assetCode` is omitted the issuer's asset codes are discovered from that
+ * stats endpoint, then each code is resolved through accounts-for-asset.
  */
-export async function getIssuedAssetTrustlines(publicKey) {
+export async function getIssuedAssetTrustlines(publicKey, assetCode) {
   if (!StellarSdk.StrKey.isValidEd25519PublicKey(publicKey)) {
     throw new Error("Connect a valid Freighter address first.");
   }
 
-  const response = await getServer().assets().forIssuer(publicKey).limit(200).call();
+  let codes;
+  if (assetCode !== undefined && assetCode !== null) {
+    const normalized = String(assetCode).trim().toUpperCase();
+    if (!normalized || normalized.length > MAX_ASSET_CODE_LENGTH) {
+      throw new Error(
+        `Asset code must be 1–${MAX_ASSET_CODE_LENGTH} characters.`
+      );
+    }
+    codes = [normalized];
+  } else {
+    const response = await getServer()
+      .assets()
+      .forIssuer(publicKey)
+      .limit(200)
+      .call();
+    codes = [
+      ...new Set((response.records || []).map((record) => record.asset_code)),
+    ];
+  }
 
-  return (response.records || []).map((record) => ({
-    key: `${record.asset_code}:${record.account}`,
-    assetCode: record.asset_code,
-    assetIssuer: record.asset_issuer,
-    holder: record.account,
-    balance: record.balance ?? "0",
-    limit: record.limit ?? null,
-    isAuthorized:
-      typeof record.is_authorized === "boolean" ? record.is_authorized : null,
-  }));
+  const rows = [];
+  for (const code of codes) {
+    const asset = new StellarSdk.Asset(code, publicKey);
+    const response = await getServer()
+      .accounts()
+      .forAsset(asset)
+      .limit(200)
+      .call();
+
+    for (const account of response.records || []) {
+      const holder = account.account_id ?? account.id;
+      const balance = (account.balances || []).find(
+        (entry) =>
+          entry.asset_code === code && entry.asset_issuer === publicKey
+      );
+
+      rows.push({
+        key: `${code}:${holder}`,
+        assetCode: code,
+        assetIssuer: publicKey,
+        holder,
+        balance: balance?.balance ?? "0",
+        limit: balance?.limit ?? null,
+        isAuthorized:
+          typeof balance?.is_authorized === "boolean"
+            ? balance.is_authorized
+            : null,
+      });
+    }
+  }
+
+  return rows;
 }
 
 /**

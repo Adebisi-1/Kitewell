@@ -6,18 +6,25 @@ import { beforeEach, describe, expect, it, vi } from "vitest";
  * are mocked; the real SDK builds the operations.
  */
 
-const { loadAccountMock, submitTransactionMock, signTransactionMock, assetsCallMock } =
-  vi.hoisted(() => ({
-    loadAccountMock: vi.fn(),
-    submitTransactionMock: vi.fn(),
-    signTransactionMock: vi.fn(),
-    assetsCallMock: vi.fn(),
-  }));
+const {
+  loadAccountMock,
+  submitTransactionMock,
+  signTransactionMock,
+  assetsCallMock,
+  accountsCallMock,
+} = vi.hoisted(() => ({
+  loadAccountMock: vi.fn(),
+  submitTransactionMock: vi.fn(),
+  signTransactionMock: vi.fn(),
+  assetsCallMock: vi.fn(),
+  accountsCallMock: vi.fn(),
+}));
 
 vi.mock("@stellar/freighter-api", () => ({
   isConnected: vi.fn(),
   setAllowed: vi.fn(),
   getAddress: vi.fn(),
+  getNetwork: vi.fn(),
   signTransaction: signTransactionMock,
 }));
 
@@ -33,6 +40,9 @@ vi.mock("@stellar/stellar-sdk", async (importOriginal) => {
           submitTransaction: submitTransactionMock,
           assets: () => ({
             forIssuer: () => ({ limit: () => ({ call: assetsCallMock }) }),
+          }),
+          accounts: () => ({
+            forAsset: () => ({ limit: () => ({ call: accountsCallMock }) }),
           }),
         };
       }),
@@ -55,16 +65,24 @@ beforeEach(() => {
 });
 
 describe("getIssuedAssetTrustlines", () => {
-  it("maps the accounts-for-asset records into holder rows", async () => {
+  it("reads holders from accounts-for-asset and maps their balance rows", async () => {
     assetsCallMock.mockResolvedValue({
+      records: [{ asset_code: "USDC", asset_issuer: ISSUER }],
+    });
+    accountsCallMock.mockResolvedValue({
       records: [
         {
-          account: HOLDER,
-          asset_code: "USDC",
-          asset_issuer: ISSUER,
-          balance: "12.0000000",
-          limit: "1000.0000000",
-          is_authorized: true,
+          account_id: HOLDER,
+          balances: [
+            {
+              asset_type: "credit_alphanum4",
+              asset_code: "USDC",
+              asset_issuer: ISSUER,
+              balance: "12.0000000",
+              limit: "1000.0000000",
+              is_authorized: true,
+            },
+          ],
         },
       ],
     });
@@ -80,12 +98,21 @@ describe("getIssuedAssetTrustlines", () => {
         isAuthorized: true,
       },
     ]);
-    expect(assetsCallMock).toHaveBeenCalledTimes(1);
+    expect(accountsCallMock).toHaveBeenCalledTimes(1);
   });
 
-  it("returns an empty list when the issuer has no holders", async () => {
+  it("queries one asset directly when a code is supplied", async () => {
+    accountsCallMock.mockResolvedValue({ records: [] });
+
+    await expect(getIssuedAssetTrustlines(ISSUER, "usdc")).resolves.toEqual([]);
+    expect(assetsCallMock).not.toHaveBeenCalled();
+    expect(accountsCallMock).toHaveBeenCalledTimes(1);
+  });
+
+  it("returns an empty list when the issuer has no assets", async () => {
     assetsCallMock.mockResolvedValue({ records: [] });
     await expect(getIssuedAssetTrustlines(ISSUER)).resolves.toEqual([]);
+    expect(accountsCallMock).not.toHaveBeenCalled();
   });
 });
 
