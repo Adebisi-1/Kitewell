@@ -19,10 +19,12 @@ import {
   fundWithFriendbot,
   getAccountBalances,
   getAccountDetails,
+  getLiquidityPool,
   getTransactions,
   explorerAccountUrl,
   explorerTxUrl,
 } from "./stellar";
+import { poolShareRows } from "./poolShare";
 import { validatePaymentAmount } from "./validatePaymentAmount";
 import { fetchHealth, fetchNetworkInfo } from "./api";
 import {
@@ -81,6 +83,7 @@ export default function App() {
   const [networkId, setNetworkId] = useState(getActiveNetworkId());
   const [freighterInstalled, setFreighterInstalled] = useState(null);
   const [balances, setBalances] = useState([]);
+  const [liquidityPools, setLiquidityPools] = useState({});
   const [transactions, setTransactions] = useState([]);
   const [nextCursor, setNextCursor] = useState(null);
   const [loading, setLoading] = useState("");
@@ -143,6 +146,8 @@ export default function App() {
   };
 
   const xlmBalance = balances.find((b) => b.isNative)?.balance ?? null;
+  const assetBalances = balances.filter((b) => !b.isPoolShare);
+  const poolShares = poolShareRows(balances, liquidityPools);
   const memoField = MEMO_FIELDS[sendForm.memoType];
   const activeNetwork = NETWORKS[networkId];
   const friendbotAvailable = isFriendbotAvailable();
@@ -158,6 +163,37 @@ export default function App() {
   useEffect(() => {
     checkFreighterInstalled().then(setFreighterInstalled);
   }, []);
+
+  // A pool-share balance only says how many shares the account holds. Load
+  // each pool so the panel can also show both reserves and the total shares.
+  useEffect(() => {
+    const poolIds = [
+      ...new Set(
+        balances.filter((b) => b.isPoolShare && b.poolId).map((b) => b.poolId)
+      ),
+    ];
+
+    if (poolIds.length === 0) return;
+
+    let cancelled = false;
+    for (const poolId of poolIds) {
+      getLiquidityPool(poolId)
+        .then((pool) => {
+          if (!cancelled) {
+            setLiquidityPools((previous) => ({ ...previous, [poolId]: pool }));
+          }
+        })
+        .catch(() => {
+          if (!cancelled) {
+            setLiquidityPools((previous) => ({ ...previous, [poolId]: null }));
+          }
+        });
+    }
+
+    return () => {
+      cancelled = true;
+    };
+  }, [balances]);
 
   const refreshBalances = useCallback(async () => {
     if (!publicKey) return;
@@ -735,7 +771,7 @@ export default function App() {
               {balances.filter((b) => !b.isNative).length > 0 && (
                 <div className="asset-chips">
                   {balances
-                    .filter((b) => !b.isNative)
+                    .filter((b) => !b.isNative && !b.isPoolShare)
                     .slice(0, 6)
                     .map((b) => (
                       <span key={b.key} className="chip">
@@ -921,9 +957,9 @@ export default function App() {
                 <code>signTransaction</code>. Removing sets the limit to 0.
               </p>
 
-              {balances.length > 0 ? (
+              {assetBalances.length > 0 ? (
                 <ul className="balance-list">
-                  {balances.map((b) => (
+                  {assetBalances.map((b) => (
                     <li key={b.key} className="balance-row">
                       <div>
                         <strong>{b.code}</strong>
@@ -966,6 +1002,51 @@ export default function App() {
                     ? "Connect a wallet to load balances."
                     : "No balances yet — fund the account first."}
                 </p>
+              )}
+
+              {poolShares.length > 0 && (
+                <div className="section">
+                  <h3 className="subhead">Liquidity pool shares</h3>
+                  {poolShares.map((row) => (
+                    <div key={row.poolId} className="info-box">
+                      <span className="eyebrow">Pool {shortenAddress(row.poolId)}</span>
+                      <div className="metadata-grid">
+                        <div>
+                          <span className="metadata-label">Your shares</span>
+                          <span className="metadata-value">{row.shares}</span>
+                        </div>
+                        <div>
+                          <span className="metadata-label">Total shares</span>
+                          <span className="metadata-value">
+                            {row.totalShares ?? "—"}
+                          </span>
+                        </div>
+                        <div>
+                          <span className="metadata-label">Your share</span>
+                          <span className="metadata-value">
+                            {row.percentage !== null ? `${row.percentage}%` : "—"}
+                          </span>
+                        </div>
+                      </div>
+                      {row.loading ? (
+                        <p className="muted">Loading pool reserves…</p>
+                      ) : row.reservesUnavailable ? (
+                        <p className="muted">
+                          Reserves unavailable — Horizon could not load this pool.
+                        </p>
+                      ) : (
+                        <div className="metadata-grid">
+                          {row.reserves.map((reserve) => (
+                            <div key={reserve.label}>
+                              <span className="metadata-label">{reserve.label}</span>
+                              <span className="metadata-value">{reserve.balance}</span>
+                            </div>
+                          ))}
+                        </div>
+                      )}
+                    </div>
+                  ))}
+                </div>
               )}
 
               <form onSubmit={handleTrust} className="form">
@@ -1053,7 +1134,7 @@ export default function App() {
                 >
                   <option value="native">XLM (native)</option>
                   {balances
-                    .filter((b) => !b.isNative)
+                    .filter((b) => !b.isNative && !b.isPoolShare)
                     .map((b) => (
                       <option key={b.key} value={b.key}>
                         {b.code} ·{" "}
