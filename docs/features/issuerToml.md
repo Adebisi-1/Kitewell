@@ -4,11 +4,13 @@
 `stellar.toml` (SEP-0001), for issue #511: the organisation name, the
 DOCUMENTATION table, and one row per `[[CURRENCIES]]` entry.
 
-The module is standalone: it is not imported by `App.jsx` or any component. The
-toml is read by a small subset parser rather than a new dependency, because the
-panel only needs DOCUMENTATION and `[[CURRENCIES]]`, and because the lab must
-never display a row it invented itself — a file the parser cannot read throws
-and yields no rows at all. Horizon reads and `fetch` are injected, so the whole
+The **Issuer** tab of `App.jsx` drives this module. The toml is read by a small
+subset parser rather than a new dependency, because the panel only needs
+DOCUMENTATION and `[[CURRENCIES]]`, and because the lab must never display a
+row it invented itself — a file the parser cannot read throws and yields no
+rows at all. The parser works one statement per line, so a value that spans
+lines (a multi-line `ACCOUNTS = [ … ]`, for example) is reported as a failure
+rather than guessed at. Horizon reads and `fetch` are injected, so the whole
 flow is tested in the Node test environment.
 
 ## Public API

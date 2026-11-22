@@ -5,8 +5,10 @@ settles it, for issue #513: after a submit the lab has a hash, and a
 transaction still in the queue must not look like one that failed a minute
 later.
 
-The module is standalone: it is not imported by `App.jsx` or any component. The
-Horizon read, the clock, the timer, the explorer link builder and the network
+The **Transaction status** panel `App.jsx` shows under Assets, Send, Path,
+History and Lab drives this module: every submit hands the returned hash to
+`watchTransactionStatus`, and the same panel takes a pasted hash. The Horizon
+read, the clock, the timer, the explorer link builder and the network
 passphrase are injected, so the polling rules are tested in the Node test
 environment without waiting on a real network.
 
@@ -50,7 +52,7 @@ Polls until the transaction settles.
 | Option | Default | Meaning |
 | --- | --- | --- |
 | `hash` | — | Transaction to follow, validated first. |
-| `loadTransaction` | `server.transactions().transaction(hash)` on the active network | One read. |
+| `loadTransaction` | `server.transactions().transaction(hash).call()` on the active network | One read. `.transaction(hash)` only builds the request; Horizon answers at `.call()`. |
 | `deadlineMs` | — | Absolute stop time; wins over `envelopeXdr`. |
 | `envelopeXdr` | — | Envelope to read the max time from. |
 | `windowMs` | `TX_WATCH_WINDOW_MS` | Watch length when no max time is known. |
@@ -95,4 +97,7 @@ A status outside `TX_STATUSES` throws `Unknown transaction status: <status>`.
 `frontend/src/tx-status-watch-*.test.js` (hash, deadline, record reading, the
 polling walks, the two ways a watch starts, presentation). The two walks the
 issue asks for are `walks pending then success` and `walks pending then expiry`
-in `tx-status-watch-poll.test.js`. Run with `npm test -w frontend`.
+in `tx-status-watch-poll.test.js`. `tx-status-watch-flow.test.js` stubs the
+call builder the way Horizon's does — the record only arrives from `.call()` —
+so a default loader that forgets to call it reads nothing and the test fails.
+Run with `npm test -w frontend`.

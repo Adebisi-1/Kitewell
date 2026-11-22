@@ -3,12 +3,14 @@
 `frontend/src/paymentStream.js` streams payments for the connected account
 (Horizon's `/accounts/<id>/payments` Server-Sent Events stream) for issue #512.
 
-The module is standalone: it is not imported by `App.jsx` or any component. An
-SSE stream needs a browser `EventSource`, so the transport (`createEventSource`
-/ `openStream`), the Horizon URL lookup and the render hook are injected and the
-rules below are tested in the Node test environment. Streamed records map to
-exactly the fields `getTransactions` in `./stellar.js` already returns, so a
-streamed payment and a paged payment render the same way.
+The **History** tab of `App.jsx` drives this module: it opens the stream while
+an account is connected and the tab is showing, names the reason when it
+closes, and merges streamed payments into the paged list. An SSE stream needs a
+browser `EventSource`, so the transport (`createEventSource` / `openStream`),
+the Horizon URL lookup and the render hook are injected and the rules below are
+tested in the Node test environment. Streamed records map to exactly the fields
+`getTransactions` in `./stellar.js` already returns, so a streamed payment and
+a paged payment render the same way.
 
 ## Public API
 

@@ -4,12 +4,12 @@
 auth, issue #510): fetch the challenge, read it, sign it, post it, and report
 the session the anchor returns.
 
-The module is standalone. It is not imported by `App.jsx` or any component, it
-never imports `@stellar/freighter-api`, and it never sees a secret key: the
-wallet is called through the injected `sign(unsignedXdr)`, which is the same
-rule the rest of the lab follows. The request function, the clock and the
-network passphrase are injectable, so every rule below is tested in the Node
-test environment with fixtures.
+The **Web auth** tab of `App.jsx` drives this module, and the module never
+imports `@stellar/freighter-api` and never sees a secret key: the wallet is
+called through the injected `sign(unsignedXdr)`, which the tab fills from
+`signChallengeWithFreighter` in `./freighter.js`. The request function, the
+clock and the network passphrase are injectable, so every rule below is tested
+in the Node test environment with fixtures.
 
 ## Public API
 
