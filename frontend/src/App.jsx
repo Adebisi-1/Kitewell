@@ -19,6 +19,7 @@ import {
 } from "./stellar";
 import { validatePaymentAmount } from "./validatePaymentAmount";
 import { fetchHealth, fetchNetworkInfo } from "./api";
+import { decodeEnvelope, formatArgumentValue } from "./envelopeDecoder";
 import {
   NETWORKS,
   getActiveNetworkId,
@@ -28,7 +29,7 @@ import {
 import { validateAssetCode } from "./validateAssetCode";
 import "./App.css";
 
-const TABS = ["Wallet", "Fund", "Assets", "Send", "Path", "History", "Lab"];
+const TABS = ["Wallet", "Fund", "Assets", "Send", "Path", "History", "Lab", "Decode"];
 const PATH_MODE_FIELDS = {
   strictSend: {
     amountLabel: "Amount to send",
@@ -97,6 +98,9 @@ export default function App() {
   const [labStateError, setLabStateError] = useState(null);
   const [registerForm, setRegisterForm] = useState({ name: "" });
   const [lastRegisterTx, setLastRegisterTx] = useState(null);
+  const [envelopeXdr, setEnvelopeXdr] = useState("");
+  const [decodedEnvelope, setDecodedEnvelope] = useState(null);
+  const [decodeError, setDecodeError] = useState(null);
   const tabRefs = useRef([]);
   const [accountDetails, setAccountDetails] = useState(null);
 
@@ -472,6 +476,17 @@ export default function App() {
       showToast(err.message || "Contract invoke failed.", "error");
     } finally {
       setLoading("");
+    }
+  };
+
+  const handleDecodeEnvelope = (e) => {
+    e.preventDefault();
+    setDecodeError(null);
+    try {
+      setDecodedEnvelope(decodeEnvelope(envelopeXdr));
+    } catch (err) {
+      setDecodedEnvelope(null);
+      setDecodeError(err.message || "Could not decode the envelope.");
     }
   };
 
@@ -1410,6 +1425,164 @@ export default function App() {
                       "Load more"
                     )}
                   </button>
+                </div>
+              )}
+            </div>
+          )}
+
+          {activeTab === "Decode" && (
+            <div className="section">
+              <h2>Decode envelope</h2>
+              <p className="muted">
+                Paste a signed or unsigned transaction envelope XDR. A Soroban invoke
+                names its contract, function, and arguments; classic envelopes keep the
+                fee, sequence, and signatures only.
+              </p>
+              <form onSubmit={handleDecodeEnvelope} className="form">
+                <label className="label" htmlFor="envelope-xdr">
+                  Envelope XDR
+                </label>
+                <textarea
+                  id="envelope-xdr"
+                  className="input"
+                  rows={5}
+                  placeholder="AAAAAgAAAA..."
+                  value={envelopeXdr}
+                  onChange={(e) => setEnvelopeXdr(e.target.value)}
+                />
+                <button
+                  className="btn btn--primary"
+                  type="submit"
+                  disabled={!envelopeXdr.trim()}
+                >
+                  Decode
+                </button>
+              </form>
+
+              {decodeError && (
+                <div className="info-box info-box--warning">
+                  <span className="eyebrow">Decode failed</span>
+                  <p className="muted">{decodeError}</p>
+                </div>
+              )}
+
+              {decodedEnvelope && (
+                <div className="section">
+                  <div className="info-box">
+                    <span className="eyebrow">Envelope</span>
+                    <div className="metadata-grid">
+                      <div>
+                        <span className="metadata-label">Kind</span>
+                        <span className="metadata-value">
+                          {decodedEnvelope.kind === "feeBump" ? "Fee bump" : "Transaction"}
+                        </span>
+                      </div>
+                      <div>
+                        <span className="metadata-label">Fee</span>
+                        <span className="metadata-value">
+                          {decodedEnvelope.fee} stroops
+                        </span>
+                      </div>
+                      {decodedEnvelope.innerFee !== null && (
+                        <div>
+                          <span className="metadata-label">Inner fee</span>
+                          <span className="metadata-value">
+                            {decodedEnvelope.innerFee} stroops
+                          </span>
+                        </div>
+                      )}
+                      <div>
+                        <span className="metadata-label">Sequence</span>
+                        <span className="metadata-value">{decodedEnvelope.sequence}</span>
+                      </div>
+                      <div>
+                        <span className="metadata-label">Source</span>
+                        <span className="metadata-value">
+                          {shortenAddress(decodedEnvelope.source)}
+                        </span>
+                      </div>
+                      <div>
+                        <span className="metadata-label">Signatures</span>
+                        <span className="metadata-value">
+                          {decodedEnvelope.signatures.length}
+                        </span>
+                      </div>
+                    </div>
+                  </div>
+
+                  {decodedEnvelope.operations.map((operation, index) => (
+                    <div key={`${operation.type}-${index}`} className="info-box">
+                      <span className="eyebrow">
+                        Operation {index + 1} · {operation.type}
+                      </span>
+                      {operation.contract && (
+                        <div className="metadata-grid">
+                          <div>
+                            <span className="metadata-label">Contract</span>
+                            <span className="metadata-value">
+                              {operation.contract.address ?? "No contract address"}
+                            </span>
+                          </div>
+                          <div>
+                            <span className="metadata-label">Function</span>
+                            <span className="metadata-value">
+                              {operation.contract.function ?? "—"}
+                            </span>
+                          </div>
+                          {operation.contract.args.length > 0 && (
+                            <div>
+                              <span className="metadata-label">Arguments</span>
+                              <ul className="balance-list">
+                                {operation.contract.args.map((argument, argIndex) => (
+                                  <li
+                                    key={`${argument.type}-${argIndex}`}
+                                    className="metadata-value"
+                                  >
+                                    <code>{argument.type}</code>{" · "}
+                                    {formatArgumentValue(argument)}
+                                  </li>
+                                ))}
+                              </ul>
+                            </div>
+                          )}
+                        </div>
+                      )}
+                      {operation.type === "payment" && (
+                        <div className="metadata-grid">
+                          <div>
+                            <span className="metadata-label">Destination</span>
+                            <span className="metadata-value">
+                              {shortenAddress(operation.destination)}
+                            </span>
+                          </div>
+                          <div>
+                            <span className="metadata-label">Asset</span>
+                            <span className="metadata-value">
+                              {operation.asset ?? "—"}
+                            </span>
+                          </div>
+                          <div>
+                            <span className="metadata-label">Amount</span>
+                            <span className="metadata-value">{operation.amount}</span>
+                          </div>
+                        </div>
+                      )}
+                      {operation.type === "changeTrust" && (
+                        <div className="metadata-grid">
+                          <div>
+                            <span className="metadata-label">Asset</span>
+                            <span className="metadata-value">
+                              {operation.asset ?? "—"}
+                            </span>
+                          </div>
+                          <div>
+                            <span className="metadata-label">Limit</span>
+                            <span className="metadata-value">{operation.limit}</span>
+                          </div>
+                        </div>
+                      )}
+                    </div>
+                  ))}
                 </div>
               )}
             </div>
