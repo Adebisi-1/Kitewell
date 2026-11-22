@@ -4,6 +4,7 @@ import {
   getAddress,
   getNetwork,
   signTransaction,
+  signAuthEntry,
 } from "@stellar/freighter-api";
 import * as StellarSdk from "@stellar/stellar-sdk";
 import { findNetworkByPassphrase, getActiveNetwork } from "./network";
@@ -262,6 +263,33 @@ export async function assertFreighterNetworkMatches() {
   throw new Error(
     `Freighter is on ${freighterLabel} but the lab is on ${lab.label}. Switch either side to match before signing.`
   );
+}
+
+/**
+ * Sign a SEP-10 web-auth challenge in Freighter and return the signed XDR.
+ *
+ * This is the `sign(unsignedXdr)` callback `sep10WebAuth.js` asks for, so the
+ * module never touches the extension and the key never leaves it either. The
+ * challenge is an auth entry rather than a transaction to submit, which is why
+ * it goes through `signAuthEntry` instead of {@link signWithFreighter}. It
+ * clears the same network guard first, so a challenge is never signed on a
+ * network the anchor did not issue it on.
+ */
+export async function signChallengeWithFreighter(unsignedXdr, publicKey) {
+  await assertFreighterNetworkMatches();
+
+  const signResult = await signAuthEntry(unsignedXdr, {
+    networkPassphrase: currentPassphrase(),
+    address: publicKey,
+  });
+
+  if (signResult.error || !signResult.signedAuthEntry) {
+    throw new Error(
+      signResult.error?.message || "Challenge signing was rejected in Freighter."
+    );
+  }
+
+  return signResult.signedAuthEntry;
 }
 
 /** Ask Freighter to sign raw XDR and return the parsed signed transaction. */
