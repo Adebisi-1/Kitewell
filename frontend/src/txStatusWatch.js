@@ -131,7 +131,7 @@ function resolveDeadlineMs({ deadlineMs, envelopeXdr, windowMs, nowMs, networkPa
  */
 export async function watchTransactionStatus({
   hash,
-  loadTransaction = (value) => readServer().transactions().transaction(value),
+  loadTransaction = (value) => readServer().transactions().transaction(value).call(),
   deadlineMs = null,
   envelopeXdr = null,
   windowMs = TX_WATCH_WINDOW_MS,

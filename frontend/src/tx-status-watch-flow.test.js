@@ -6,8 +6,10 @@ import { beforeEach, describe, expect, it, vi } from "vitest";
  *
  * The Horizon server is mocked the way `payment-stream-map.test.js` mocks it,
  * so the default read goes through the real call builder chain and stops at a
- * stubbed network. Envelopes carry the absolute max time a 180 second timeout
- * would put on them, so the walk is repeatable.
+ * stubbed network. `transactions().transaction(hash)` only builds the request —
+ * Horizon answers when `.call()` runs — so the stub keeps that shape. Envelopes
+ * carry the absolute max time a 180 second timeout would put on them, so the
+ * walk is repeatable.
  */
 
 const { transactionReadMock } = vi.hoisted(() => ({ transactionReadMock: vi.fn() }));
@@ -20,7 +22,9 @@ vi.mock("@stellar/stellar-sdk", async (importOriginal) => {
       ...actual.Horizon,
       Server: vi.fn(function () {
         return {
-          transactions: () => ({ transaction: transactionReadMock }),
+          transactions: () => ({
+            transaction: (hash) => ({ call: () => transactionReadMock(hash) }),
+          }),
         };
       }),
     },
