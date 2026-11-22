@@ -7,6 +7,7 @@ import {
 import * as StellarSdk from "@stellar/stellar-sdk";
 import { getActiveNetwork } from "./network";
 import { buildAsset, parsePathAssets } from "./stellar";
+import { parseSimulationFees } from "./simulationFees";
 
 function getServer() {
   return new StellarSdk.Horizon.Server(getActiveNetwork().horizonUrl);
@@ -88,6 +89,51 @@ export async function readKitewellState(contractId, viewerAddress) {
   ]);
 
   return { labName, builderCount, builder };
+}
+
+/**
+ * Simulate the builder registration without signing or submitting it, so the
+ * panel can show the inclusion fee and the resource fee separately.
+ *
+ * @returns {Promise<{
+ *   error: string|null,
+ *   inclusionFee: string|null,
+ *   resourceFee: string|null,
+ *   totalFee: string|null,
+ * }>} Fees in stroops.
+ */
+export async function simulateRegisterBuilder(publicKey, contractId, name) {
+  const trimmed = (name || "").trim();
+  if (!trimmed) {
+    throw new Error("Enter a builder name to register.");
+  }
+  if ([...trimmed].length > 64) {
+    throw new Error("Builder name must be 64 characters or fewer.");
+  }
+  if (!StellarSdk.StrKey.isValidEd25519PublicKey(publicKey)) {
+    throw new Error("Connect a valid Freighter address first.");
+  }
+  if (!StellarSdk.StrKey.isValidContract(contractId)) {
+    throw new Error(
+      "Contract ID must be a valid Soroban contract strkey (C…)."
+    );
+  }
+
+  const contract = new StellarSdk.Contract(contractId);
+  const sourceAccount = await sorobanRpc.getAccount(publicKey);
+  const transaction = buildContractTx(
+    contract,
+    "register",
+    [
+      StellarSdk.nativeToScVal(publicKey, { type: "address" }),
+      StellarSdk.nativeToScVal(trimmed, { type: "string" }),
+    ],
+    sourceAccount
+  );
+
+  // Simulation only: the user still has to press Sign to submit.
+  const simulation = await sorobanRpc.simulateTransaction(transaction);
+  return parseSimulationFees(simulation, transaction.fee);
 }
 
 /**
