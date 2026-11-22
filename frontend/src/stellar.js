@@ -203,3 +203,28 @@ export async function getTransactions(publicKey, limit = 15, cursor) {
     nextCursor: null,
   };
 }
+
+/**
+ * Stream effects for one account (trustlines, trades, offers, credits).
+ *
+ * The returned close function stops the stream; call it when the account
+ * disconnects, the network changes, or the panel closes.
+ *
+ * @param {string} publicKey Account to stream.
+ * @param {{ onEffect?: (effect: object) => void, onError?: (error: unknown) => void }} handlers
+ * @returns {() => void} Closes the stream.
+ */
+export function streamAccountEffects(publicKey, { onEffect, onError } = {}) {
+  if (typeof publicKey !== "string" || !publicKey) {
+    throw new Error("An account is required to stream effects.");
+  }
+
+  return getServer()
+    .effects()
+    .forAccount(publicKey)
+    .cursor("now")
+    .stream({
+      onmessage: (effect) => onEffect?.(effect),
+      onerror: (error) => onError?.(error),
+    });
+}

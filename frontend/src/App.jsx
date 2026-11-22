@@ -14,6 +14,7 @@ import {
   getAccountBalances,
   getAccountDetails,
   getTransactions,
+  streamAccountEffects,
   explorerAccountUrl,
   explorerTxUrl,
 } from "./stellar";
@@ -26,6 +27,7 @@ import {
   setActiveNetwork,
 } from "./network";
 import { validateAssetCode } from "./validateAssetCode";
+import { appendEffect, labelEffect } from "./accountEffects";
 import "./App.css";
 
 const TABS = ["Wallet", "Fund", "Assets", "Send", "Path", "History", "Lab"];
@@ -99,6 +101,8 @@ export default function App() {
   const [lastRegisterTx, setLastRegisterTx] = useState(null);
   const tabRefs = useRef([]);
   const [accountDetails, setAccountDetails] = useState(null);
+  const [accountEffects, setAccountEffects] = useState([]);
+  const [effectsError, setEffectsError] = useState(null);
 
   const showToast = (message, type = "success", explorerUrl = null) => {
     setToast({ message, type, explorerUrl });
@@ -163,6 +167,8 @@ export default function App() {
     setBalances([]);
     setTransactions([]);
     setAccountDetails(null);
+    setAccountEffects([]);
+    setEffectsError(null);
     showToast("Disconnected.");
   };
 
@@ -396,6 +402,36 @@ export default function App() {
       setLoading("");
     }
   };
+
+  // Effects carry trustlines, offers, trades, and credits that the payment
+  // stream never sees. Stream only while the account panel is open.
+  useEffect(() => {
+    if (!publicKey || activeTab !== "Wallet") return undefined;
+
+    let active = true;
+    let close = () => {};
+
+    try {
+      close = streamAccountEffects(publicKey, {
+        onEffect: (effect) => {
+          if (!active) return;
+          setAccountEffects((previous) => appendEffect(previous, effect));
+        },
+        onError: () => {
+          if (!active) return;
+          // Keep the effects already shown instead of clearing the list.
+          setEffectsError("Effect stream interrupted. Shown effects are kept.");
+        },
+      });
+    } catch {
+      // The stream could not start; existing effects stay visible.
+    }
+
+    return () => {
+      active = false;
+      if (typeof close === "function") close();
+    };
+  }, [publicKey, activeTab, networkId]);
 
   const requireWallet = !publicKey;
 
@@ -737,6 +773,42 @@ export default function App() {
                       </a>
                     </div>
                   )}
+                  <div className="section">
+                    <h3 className="subhead">Account effects</h3>
+                    <p className="muted">
+                      Trustlines, trades, offers, and account credits/debits stream here while
+                      this panel is open.
+                    </p>
+                    {effectsError && <p className="muted">{effectsError}</p>}
+                    {accountEffects.length > 0 ? (
+                      <ul className="balance-list">
+                        {accountEffects.map((effect, index) => {
+                          const labelled = labelEffect(effect);
+                          return (
+                            <li
+                              key={
+                                effect.paging_token ??
+                                effect.id ??
+                                `${labelled.type}-${index}`
+                              }
+                              className="balance-row"
+                            >
+                              <div>
+                                <strong>{labelled.type}</strong>
+                                {labelled.label && (
+                                  <span className="muted balance-row__issuer">
+                                    {labelled.label}
+                                  </span>
+                                )}
+                              </div>
+                            </li>
+                          );
+                        })}
+                      </ul>
+                    ) : (
+                      <p className="muted">No effects yet.</p>
+                    )}
+                  </div>
                   <button className="btn btn--secondary" type="button" onClick={handleDisconnect}>
                     Disconnect
                   </button>
