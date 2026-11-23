@@ -2232,8 +2232,6 @@ export default function App() {
   );
 }
 
-}
-
 function DecodedEnvelope({ decoded }) {
   const networkLabel = decoded.network?.label || decoded.network?.passphrase;
   const transaction = decoded.isFeeBump ? decoded.inner : decoded;
