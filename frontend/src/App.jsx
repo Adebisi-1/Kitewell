@@ -121,6 +121,7 @@ export default function App() {
     memo: "",
   });
   const [trustForm, setTrustForm] = useState({ code: "", issuer: "", limit: "1000000" });
+  const [limitChangeForm, setLimitChangeForm] = useState({});
   const [pathForm, setPathForm] = useState({
     mode: "strictSend",
     destination: "",
@@ -465,6 +466,48 @@ export default function App() {
     } catch (err) {
       trackFailedSubmit("changeTrust", err);
       showToast(err.message || "Change trust failed.", "error");
+    } finally {
+      setLoading("");
+    }
+  };
+
+  const handleChangeLimit = async (asset) => {
+    if (!publicKey) return showToast("Connect Freighter first.", "error");
+
+    const newLimit = limitChangeForm[asset.key];
+    if (!newLimit || newLimit.trim() === "") {
+      return showToast("Enter a new limit.", "error");
+    }
+
+    const limitNum = parseFloat(newLimit);
+    if (Number.isNaN(limitNum) || limitNum < 0) {
+      return showToast("Limit must be a non-negative number.", "error");
+    }
+
+    const balance = parseFloat(asset.balance);
+    if (limitNum < balance) {
+      return showToast(
+        `Limit (${newLimit}) cannot be below current balance (${asset.balance}).`,
+        "error"
+      );
+    }
+
+    setLoading(`limit-${asset.key}`);
+    try {
+      const result = await changeTrustWithFreighter(
+        publicKey,
+        asset.code,
+        asset.issuer,
+        newLimit
+      );
+      const next = await getAccountBalances(publicKey);
+      setBalances(next);
+      setLimitChangeForm({ ...limitChangeForm, [asset.key]: "" });
+      showToast(`${asset.code} trustline limit updated to ${newLimit}.`);
+      startTxWatch(result.hash);
+    } catch (err) {
+      trackFailedSubmit("changeTrust", err);
+      showToast(err.message || `Could not change ${asset.code} trustline limit.`, "error");
     } finally {
       setLoading("");
     }
@@ -1540,6 +1583,41 @@ export default function App() {
                           </button>
                         )}
                       </div>
+                      {!b.isNative && (
+                        <div className="balance-row__actions">
+                          <span className="muted">
+                            Limit:{" "}
+                            {b.limit
+                              ? parseFloat(b.limit).toLocaleString(undefined, {
+                                  maximumFractionDigits: 7,
+                                })
+                              : "—"}
+                          </span>
+                          <input
+                            className="input"
+                            type="number"
+                            placeholder="New limit"
+                            value={limitChangeForm[b.key] || ""}
+                            onChange={(e) =>
+                              setLimitChangeForm({
+                                ...limitChangeForm,
+                                [b.key]: e.target.value,
+                              })
+                            }
+                            disabled={loading === `limit-${b.key}`}
+                          />
+                          <button
+                            className="btn btn--secondary btn--sm"
+                            type="button"
+                            onClick={() => handleChangeLimit(b)}
+                            disabled={
+                              loading === `limit-${b.key}` || !limitChangeForm[b.key]
+                            }
+                          >
+                            {loading === `limit-${b.key}` ? "Changing…" : "Change limit"}
+                          </button>
+                        </div>
+                      )}
                     </li>
                   ))}
                 </ul>
