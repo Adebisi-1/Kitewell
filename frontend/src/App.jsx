@@ -136,6 +136,7 @@ export default function App() {
   const [unsignedEnvelope, setUnsignedEnvelope] = useState(null);
   const [labInfo, setLabInfo] = useState(null);
   const [labError, setLabError] = useState(null);
+  const [simulationFees, setSimulationFees] = useState(null);
   const [labState, setLabState] = useState(null);
   const [labStateError, setLabStateError] = useState(null);
   const [registerForm, setRegisterForm] = useState({ name: "" });
@@ -1047,6 +1048,38 @@ export default function App() {
     if (tab === "Issuer") refreshIssuerPanel();
     if ((tab === "Wallet" || tab === "Assets" || tab === "Send") && publicKey) {
       refreshBalances();
+    }
+  };
+
+  const handleSimulateRegister = async () => {
+    if (!publicKey) return showToast("Connect Freighter first.", "error");
+    const contractId = labInfo?.network?.contract?.kitewell;
+    if (!contractId) {
+      return showToast(
+        "No contract id configured — deploy first (contracts/README.md).",
+        "error"
+      );
+    }
+    if (!registerForm.name.trim()) {
+      return showToast("Enter a builder name to register.", "error");
+    }
+
+    setLoading("simulate");
+    setSimulationFees(null);
+    try {
+      const fees = await simulateRegisterBuilder(
+        publicKey,
+        contractId,
+        registerForm.name
+      );
+      setSimulationFees(fees);
+      if (fees.error) {
+        showToast(`Simulation failed: ${fees.error}`, "error");
+      }
+    } catch (err) {
+      showToast(err.message || "Simulation failed.", "error");
+    } finally {
+      setLoading("");
     }
   };
 
@@ -2314,8 +2347,57 @@ export default function App() {
                         "Sign & register"
                       )}
                     </button>
+                    <button
+                      className="btn btn--secondary"
+                      type="button"
+                      onClick={handleSimulateRegister}
+                      disabled={loading === "simulate" || requireWallet}
+                    >
+                      {loading === "simulate" ? (
+                        <>
+                          <Spinner /> Simulating…
+                        </>
+                      ) : (
+                        "Simulate fees"
+                      )}
+                    </button>
                     {!publicKey && <p className="muted">Connect Freighter to sign.</p>}
                   </form>
+                  {simulationFees && (
+                    <div className="info-box">
+                      <span className="eyebrow">Simulated fees (stroops)</span>
+                      {simulationFees.error ? (
+                        <p className="muted">
+                          Simulation failed: fees are unavailable.
+                        </p>
+                      ) : (
+                        <div className="metadata-grid">
+                          <div>
+                            <span className="metadata-label">Inclusion fee</span>
+                            <span className="metadata-value">
+                              {formatSimulationFee(simulationFees.inclusionFee)}
+                            </span>
+                          </div>
+                          <div>
+                            <span className="metadata-label">Resource fee</span>
+                            <span className="metadata-value">
+                              {formatSimulationFee(simulationFees.resourceFee)}
+                            </span>
+                          </div>
+                          <div>
+                            <span className="metadata-label">Total fee</span>
+                            <span className="metadata-value">
+                              {formatSimulationFee(simulationFees.totalFee)}
+                            </span>
+                          </div>
+                        </div>
+                      )}
+                      <p className="muted">
+                        Simulation does not submit. Press Sign &amp; register to sign
+                        with these fees.
+                      </p>
+                    </div>
+                  )}
                   {lastRegisterTx && (
                     <div className="info-box">
                       <span className="eyebrow">Register tx</span>

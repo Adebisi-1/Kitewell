@@ -111,6 +111,51 @@ export async function readKitewellState(contractId, viewerAddress) {
 }
 
 /**
+ * Simulate the builder registration without signing or submitting it, so the
+ * panel can show the inclusion fee and the resource fee separately.
+ *
+ * @returns {Promise<{
+ *   error: string|null,
+ *   inclusionFee: string|null,
+ *   resourceFee: string|null,
+ *   totalFee: string|null,
+ * }>} Fees in stroops.
+ */
+export async function simulateRegisterBuilder(publicKey, contractId, name) {
+  const trimmed = (name || "").trim();
+  if (!trimmed) {
+    throw new Error("Enter a builder name to register.");
+  }
+  if ([...trimmed].length > 64) {
+    throw new Error("Builder name must be 64 characters or fewer.");
+  }
+  if (!StellarSdk.StrKey.isValidEd25519PublicKey(publicKey)) {
+    throw new Error("Connect a valid Freighter address first.");
+  }
+  if (!StellarSdk.StrKey.isValidContract(contractId)) {
+    throw new Error(
+      "Contract ID must be a valid Soroban contract strkey (C…)."
+    );
+  }
+
+  const contract = new StellarSdk.Contract(contractId);
+  const sourceAccount = await sorobanRpc.getAccount(publicKey);
+  const transaction = buildContractTx(
+    contract,
+    "register",
+    [
+      StellarSdk.nativeToScVal(publicKey, { type: "address" }),
+      StellarSdk.nativeToScVal(trimmed, { type: "string" }),
+    ],
+    sourceAccount
+  );
+
+  // Simulation only: the user still has to press Sign to submit.
+  const simulation = await sorobanRpc.simulateTransaction(transaction);
+  return parseSimulationFees(simulation, transaction.fee);
+}
+
+/**
  * Check in a builder: builds + simulates a Soroban `register(caller, name)`
  * invoke, lets Freighter sign it, then submits via Soroban RPC and waits for
  * on-chain confirmation.
