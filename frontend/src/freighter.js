@@ -444,6 +444,7 @@ export async function buildUnsignedEnvelope(
     throw new Error("Add at least one operation before building an envelope.");
   }
 
+  // Load the account immediately before building so a stale sequence is refused.
   const sourceAccount = await getServer().loadAccount(publicKey);
   const txBuilder = new StellarSdk.TransactionBuilder(sourceAccount, {
     fee: StellarSdk.BASE_FEE,
@@ -588,6 +589,7 @@ export async function pathPaymentWithFreighter({
         path: intermediatePath,
       });
 
+  // Load the account immediately before building so a stale sequence is refused.
   const sourceAccount = await getServer().loadAccount(publicKey);
   const transaction = new StellarSdk.TransactionBuilder(sourceAccount, {
     fee: StellarSdk.BASE_FEE,
@@ -618,6 +620,7 @@ export async function changeTrustWithFreighter(
   }
 
   const asset = new StellarSdk.Asset(assetCode.toUpperCase(), assetIssuer);
+  // Load the account immediately before building so a stale sequence is refused.
   const sourceAccount = await getServer().loadAccount(publicKey);
   const transaction = new StellarSdk.TransactionBuilder(sourceAccount, {
     fee: StellarSdk.BASE_FEE,
@@ -647,6 +650,7 @@ export async function setAccountOptionsWithFreighter(publicKey, options = {}) {
   }
 
   const body = buildSetOptionsBody(options);
+  // Load the account immediately before building so a stale sequence is refused.
   const sourceAccount = await getServer().loadAccount(publicKey);
   const transaction = new StellarSdk.TransactionBuilder(sourceAccount, {
     fee: StellarSdk.BASE_FEE,
@@ -685,6 +689,7 @@ export async function allowTrustWithFreighter(
     throw new Error(`Asset code must be 1–${MAX_ASSET_CODE_LENGTH} characters.`);
   }
 
+  // Load the account immediately before building so a stale sequence is refused.
   const sourceAccount = await getServer().loadAccount(publicKey);
   const transaction = new StellarSdk.TransactionBuilder(sourceAccount, {
     fee: StellarSdk.BASE_FEE,
