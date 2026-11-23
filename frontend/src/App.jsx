@@ -12,6 +12,8 @@ import {
   allowTrustWithFreighter,
   readContractInstanceTtl,
   extendContractTtlWithFreighter,
+  readContractTTL,
+  extendCodeTTL,
   readKitewellEvents,
   submitFailureResult,
   signChallengeWithFreighter,
@@ -195,6 +197,8 @@ export default function App() {
   const [ttlError, setTtlError] = useState(null);
   const [ttlForm, setTtlForm] = useState({ extendTo: "" });
   const [ttlResult, setTtlResult] = useState(null);
+  const [codeTtl, setCodeTtl] = useState(null);
+  const [codeTtlError, setCodeTtlError] = useState(null);
   const [labEvents, setLabEvents] = useState([]);
   const [labEventsError, setLabEventsError] = useState(null);
   const eventCursorRef = useRef(null);
@@ -941,6 +945,52 @@ export default function App() {
     } catch (err) {
       setTtlInfo(null);
       setTtlError(err.message || "Could not read the instance TTL.");
+    } finally {
+      setLoading("");
+    }
+  };
+
+  const refreshCodeTtl = useCallback(async () => {
+    if (!configuredContractId) {
+      setCodeTtl(null);
+      setCodeTtlError(null);
+      return;
+    }
+    setLoading("code-ttl");
+    setCodeTtlError(null);
+    try {
+      const ttlData = await readContractTTL(configuredContractId);
+      setCodeTtl(ttlData);
+    } catch (err) {
+      setCodeTtl(null);
+      setCodeTtlError(err.message || "Could not read the contract code TTL.");
+    } finally {
+      setLoading("");
+    }
+  }, [configuredContractId]);
+
+  const handleExtendCodeTtl = async () => {
+    if (!publicKey) return showToast("Connect Freighter first.", "error");
+    if (!configuredContractId) {
+      return showToast("No contract id configured.", "error");
+    }
+    if (!codeTtl?.wasmHash || !codeTtl?.currentLedger) {
+      return showToast("Refresh the code TTL first.", "error");
+    }
+
+    const extendTo = codeTtl.currentLedger + 100000;
+    setLoading("extend-code");
+    try {
+      const result = await extendCodeTTL(
+        publicKey,
+        codeTtl.wasmHash,
+        extendTo,
+        codeTtl.currentLedger
+      );
+      showToast(`Code TTL extended to ledger ${result.deadline}.`, "success");
+      await refreshCodeTtl();
+    } catch (err) {
+      showToast(err.message || "Failed to extend code TTL.", "error");
     } finally {
       setLoading("");
     }
@@ -2517,6 +2567,61 @@ export default function App() {
                         Ledger {ttlResult.liveUntilLedgerSeq} ·{" "}
                         {ttlResult.hash}
                       </code>
+                    </div>
+                  )}
+
+                  <div className="section__row">
+                    <div className="subhead">Contract code TTL</div>
+                    <button
+                      className="btn btn--secondary"
+                      type="button"
+                      onClick={refreshCodeTtl}
+                      disabled={loading === "code-ttl" || !configuredContractId}
+                    >
+                      {loading === "code-ttl" ? "Reading…" : "Refresh code TTL"}
+                    </button>
+                  </div>
+                  <p className="muted">
+                    Extends the Wasm code entry on its own. The instance TTL above is left unchanged.
+                  </p>
+                  {codeTtlError && (
+                    <div className="info-box info-box--warning">
+                      <p className="muted">{codeTtlError}</p>
+                    </div>
+                  )}
+                  {codeTtl && (
+                    <div className="info-box">
+                      <span className="eyebrow">Code lifetime</span>
+                      <div className="metadata-grid">
+                        <div>
+                          <span className="metadata-label">Current ledger</span>
+                          <span className="metadata-value">{codeTtl.currentLedger}</span>
+                        </div>
+                        <div>
+                          <span className="metadata-label">Code TTL</span>
+                          <span className="metadata-value">
+                            {codeTtl.codeTTL ? `Ledger ${codeTtl.codeTTL}` : "—"}
+                          </span>
+                        </div>
+                        <div>
+                          <span className="metadata-label">Wasm hash</span>
+                          <span className="metadata-value">
+                            {codeTtl.wasmHash ? `${codeTtl.wasmHash.slice(0, 16)}…` : "—"}
+                          </span>
+                        </div>
+                      </div>
+                      <button
+                        className="btn btn--secondary btn--sm"
+                        type="button"
+                        onClick={handleExtendCodeTtl}
+                        disabled={
+                          loading === "extend-code" ||
+                          !publicKey ||
+                          !codeTtl.wasmHash
+                        }
+                      >
+                        {loading === "extend-code" ? "Extending…" : "Extend code TTL"}
+                      </button>
                     </div>
                   )}
 
