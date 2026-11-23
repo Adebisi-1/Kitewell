@@ -40,6 +40,28 @@ function withoutComment(line) {
   return line;
 }
 
+/**
+ * How many arrays a fragment opens without closing, counting brackets outside
+ * strings. A published stellar.toml spreads `ACCOUNTS = [ … ]` over several
+ * lines, so the reader keeps taking lines while this is greater than zero.
+ */
+function openArrayDepth(text) {
+  let depth = 0;
+  let quote = null;
+  for (let index = 0; index < text.length; index += 1) {
+    const character = text[index];
+    if (quote) {
+      if (character === "\\" && quote === '"') index += 1;
+      else if (character === quote) quote = null;
+      continue;
+    }
+    if (character === '"' || character === "'") quote = character;
+    else if (character === "[") depth += 1;
+    else if (character === "]") depth -= 1;
+  }
+  return depth;
+}
+
 function readBasicString(text, start, lineNumber) {
   let value = "";
   let index = start + 1;
@@ -159,8 +181,15 @@ export function parseStellarToml(text) {
 
   for (let offset = 0; offset < lines.length; offset += 1) {
     const lineNumber = offset + 1;
-    const statement = withoutComment(lines[offset]).trim();
+    let statement = withoutComment(lines[offset]).trim();
     if (!statement) continue;
+
+    // A value that carries an open array runs on until the array closes. The
+    // line number reported stays the one the statement started on.
+    while (openArrayDepth(statement) > 0 && offset + 1 < lines.length) {
+      offset += 1;
+      statement = `${statement} ${withoutComment(lines[offset]).trim()}`;
+    }
 
     const arrayHeader = /^\[\[([^\]]+)\]\]$/.exec(statement);
     if (arrayHeader) {

@@ -51,6 +51,44 @@ nested = [["a"], ["b"]]
     expect(parsed.values.nested).toEqual([["a"], ["b"]]);
   });
 
+  // Published files such as centre.io's and circle.com's spread ACCOUNTS over
+  // several lines, so the reader has to follow the array to its ].
+  it("reads an array the issuer spread over several lines", () => {
+    const parsed = parseStellarToml(`
+ACCOUNTS=[
+"GA5ZSEJYB37JRC5AVCIA5MOP4RHTM335X2KGX3IHOJAPP5RE34K4KZVN", "GDEWOLMOPAVRTGNJVWOE6U6LHZVAWIJZVWM6PDLCFTUTJJEKSU32TO5W"
+]
+
+[DOCUMENTATION]
+ORG_NAME="Centre Consortium LLC"
+
+[[CURRENCIES]]
+code = "USD"
+issuer = "GA5ZSEJYB37JRC5AVCIA5MOP4RHTM335X2KGX3IHOJAPP5RE34K4KZVN"
+display_decimals = 2
+`);
+    expect(parsed.values.ACCOUNTS).toEqual([
+      "GA5ZSEJYB37JRC5AVCIA5MOP4RHTM335X2KGX3IHOJAPP5RE34K4KZVN",
+      "GDEWOLMOPAVRTGNJVWOE6U6LHZVAWIJZVWM6PDLCFTUTJJEKSU32TO5W",
+    ]);
+    expect(parsed.tables.DOCUMENTATION.ORG_NAME).toBe("Centre Consortium LLC");
+    expect(parsed.arrays.CURRENCIES).toEqual([
+      {
+        code: "USD",
+        issuer: "GA5ZSEJYB37JRC5AVCIA5MOP4RHTM335X2KGX3IHOJAPP5RE34K4KZVN",
+        display_decimals: 2,
+      },
+    ]);
+  });
+
+  it("keeps reading lines until the array closes, comments and blanks aside", () => {
+    const parsed = parseStellarToml(
+      'accounts = [\n  "GA7", # one\n\n  "GB8",\n]\nnext = 2'
+    );
+    expect(parsed.values.accounts).toEqual(["GA7", "GB8"]);
+    expect(parsed.values.next).toBe(2);
+  });
+
   it("accepts quoted keys and dotted-free table names", () => {
     const parsed = parseStellarToml('"ORG_NAME" = "Top level"\n[CURRENCIES]\ncode = "USD"');
     expect(parsed.values.ORG_NAME).toBe("Top level");
@@ -92,6 +130,12 @@ describe("parseStellarToml failures", () => {
 
   it.each(cases)("refuses %o on its own line", (text, line, reason) => {
     expect(() => parseStellarToml(text)).toThrow(`stellar.toml line ${line}: ${reason}`);
+  });
+
+  it("reports the line an unclosed array opened on", () => {
+    expect(() => parseStellarToml('accounts = [\n"GA7",\n"GB8",\n')).toThrow(
+      "stellar.toml line 1: an array is not closed"
+    );
   });
 
   it("reports the line the failure is on, not the first line", () => {

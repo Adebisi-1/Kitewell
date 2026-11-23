@@ -8,10 +8,12 @@ The **Issuer** tab of `App.jsx` drives this module. The toml is read by a small
 subset parser rather than a new dependency, because the panel only needs
 DOCUMENTATION and `[[CURRENCIES]]`, and because the lab must never display a
 row it invented itself — a file the parser cannot read throws and yields no
-rows at all. The parser works one statement per line, so a value that spans
-lines (a multi-line `ACCOUNTS = [ … ]`, for example) is reported as a failure
-rather than guessed at. Horizon reads and `fetch` are injected, so the whole
-flow is tested in the Node test environment.
+rows at all. A statement may run over several lines only while an array is
+still open, which is how published files write `ACCOUNTS = [ … ]`; an array
+that never closes is reported on the line it opened. Multi-line strings and
+inline tables are outside the subset and are reported as failures. Horizon
+reads and `fetch` are injected, so the whole flow is tested in the Node test
+environment.
 
 ## Public API
 
