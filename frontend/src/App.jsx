@@ -567,9 +567,10 @@ export default function App() {
       showToast("Choose an asset you hold a trustline for.", "error");
       return null;
     }
-    if (parseFloat(amount) > parseFloat(selected.balance)) {
+    const available = parseFloat(selected.available || selected.balance);
+    if (parseFloat(amount) > available) {
       showToast(
-        `Insufficient ${selected.code} balance. Available: ${selected.balance}.`,
+        `Insufficient ${selected.code} balance. Available: ${available.toFixed(7)} (after reserves and liabilities).`,
         "error"
       );
       return null;
@@ -1561,7 +1562,8 @@ export default function App() {
                       </div>
                       <div className="balance-row__actions">
                         <span>
-                          {parseFloat(b.balance).toLocaleString(undefined, {
+                          Available{" "}
+                          {parseFloat(b.available || b.balance).toLocaleString(undefined, {
                             maximumFractionDigits: 7,
                           })}
                         </span>
